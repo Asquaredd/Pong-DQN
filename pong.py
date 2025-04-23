@@ -44,8 +44,7 @@ class ExperienceBuffer:
         self.buffer.append(experience)
 
     def sample(self, batch_size):
-        indices = np.random.choice(
-            len(self.buffer), ("batch_size"), replace=False)
+        indices = np.random.choice(len(self.buffer), (batch_size), replace=False)
         states, actions, rewards, dones, next_states = zip(*[self.buffer[idx]
                                                              for idx in indices])
         return np.array(states), np.array(actions), np.array(rewards, dtype=np.float32), np.array(dones, dtype=np.uint8), np.array(next_states)
@@ -97,30 +96,27 @@ class Agent:
 def compute_loss(batch, net, target_net, device="cpu"):
     states, actions, rewards, dones, next_states = batch
 
-    # convert everything into a torch tensor so that we can compute derivatives
-    states_vector = torch.tensor(states).to(device)
-    next_states_vector = torch.tensor(next_states).to(device)
-    actions_vector = torch.tensor(actions).to(device)
-    rewards_vector = torch.tensor(rewards).to(device)
-    done_mask = torch.BoolTensor(dones).to(device)
+    # Convert all to tensors
+    states_vector = torch.tensor(states, dtype=torch.float32).to(device)
+    next_states_vector = torch.tensor(next_states, dtype=torch.float32).to(device)
+    actions_vector = torch.tensor(actions, dtype=torch.long).to(device)  # ← FIXED dtype
+    rewards_vector = torch.tensor(rewards, dtype=torch.float32).to(device)
+    done_mask = torch.tensor(dones, dtype=torch.bool).to(device)
 
-    # compute the predictions our model would make for this batch of state
-    # transitions (represented as tensors)
-    state_action_values = net(states_vector).gather(1,
-                                                    actions_vector.unsqueeze(-1)).squeeze(-1)
-    # compute the actual values we got for those transitions
+    # Get Q-values for the actions taken
+    state_action_values = net(states_vector).gather(1, actions_vector.unsqueeze(-1)).squeeze(-1)
+
+    # Get the max predicted Q-value for the next states from the target network
     next_state_values = target_net(next_states_vector).max(1)[0]
-    # make sure future values aren't being considered for end states
     next_state_values[done_mask] = 0.0
     next_state_values = next_state_values.detach()
 
-    # add the future reward of a state reached to the rewards of the current
-    # transition to correctly represent the actual value of the state reached
-    expected_state_action_values = next_state_values * GAMMA + rewards_vector
+    # Compute the expected Q-values using Bellman equation
+    expected_state_action_values = rewards_vector + GAMMA * next_state_values
 
-    # compute the Mean Squared Error Loss between our predictions and the
-    # actual values of the transitions
+    # Return MSE loss between predicted and expected Q-values
     return nn.MSELoss()(state_action_values, expected_state_action_values)
+
 
 
 if __name__ == "__main__":
